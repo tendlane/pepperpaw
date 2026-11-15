@@ -1,12 +1,14 @@
-# herdr-courier
+# pepperpaw
 
-[![Tests](https://github.com/NaNIsaac/herdr-courier/actions/workflows/ci.yml/badge.svg)](https://github.com/NaNIsaac/herdr-courier/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://github.com/tendlane/pepperpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/tendlane/pepperpaw/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 비공식 도구이며 herdr와 관계가 없습니다.
 
 **[herdr](https://herdr.dev) pane용 프롬프트 큐: 사람이 입력하는 동안 에이전트 메시지는 기다립니다.**
 
 [English](README.md)
+
+패키지 이름은 PyPI에서 `herdr-courier`이고, 명령은 그대로 `courier`, `hc`, `hcd`입니다.
 
 herdr 워크스페이스의 에이전트끼리 `herdr agent prompt`로 메시지를 보내면, 그 글은 대상 입력
 상자에 이미 있는 내용 뒤에 붙어서 제출됩니다. 그 pane에서 문장을 반쯤 쓰고 있었다면 쓰던 문장이

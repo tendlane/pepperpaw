@@ -1,12 +1,14 @@
-# herdr-courier
+# pepperpaw
 
-[![Tests](https://github.com/NaNIsaac/herdr-courier/actions/workflows/ci.yml/badge.svg)](https://github.com/NaNIsaac/herdr-courier/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://github.com/tendlane/pepperpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/tendlane/pepperpaw/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 Unofficial; not affiliated with herdr.
 
 **A prompt queue for [herdr](https://herdr.dev) panes: agent messages wait while a person is typing.**
 
 [한국어](README.ko.md)
+
+The package is `herdr-courier` on PyPI, and the commands are still `courier`, `hc` and `hcd`.
 
 When agents in a herdr workspace message each other with `herdr agent prompt`, the text is pasted
 after whatever is already in the target's input box and submitted. If you were halfway through a
