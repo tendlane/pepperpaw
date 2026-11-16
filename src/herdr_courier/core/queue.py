@@ -1328,7 +1328,7 @@ class Dispatcher:
             item = self.items.get(item_id)
             if item is None or item.state in FINAL:
                 m.items.remove(item_id)
-            elif m.back is None and item.held_until is not None and wall >= item.held_until:
+            elif item.held_until is not None and wall >= item.held_until:
                 m.expired.append(item.id)
                 self._finish(item, State.FAILED, f"hold expired: {m.reason(name)}")
         line = None
@@ -1368,12 +1368,21 @@ class Dispatcher:
                     )
                     m.released += 1
                 if m.released and m.items and not reader:
-                    for item_id in m.items:
+                    overflow = len(m.items)
+                    for item_id in list(m.items):
+                        overflow_item = self.items[item_id]
                         try:
-                            mailbox.add(self.journal.parent, self.items[item_id])
+                            mailbox.add(self.journal.parent, overflow_item)
                         except OSError as exc:
                             self.log(f"courier: {item_id} for {name} not filed: {exc}")
-                    line = f"courier: {len(m.items)} more held for you: `courier inbox`"
+                            continue
+                        overflow_item.held_until = None
+                        self._finish(
+                            overflow_item,
+                            State.SENT,
+                            "filed once in mailbox (`courier inbox`)",
+                        )
+                    line = f"courier: {overflow} more held for you: `courier inbox`"
         already_reported_back = (
             m.summary_said is not None and m.back is not None and m.summary_said[2] == m.back
         )

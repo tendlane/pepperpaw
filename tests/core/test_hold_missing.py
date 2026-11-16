@@ -86,7 +86,9 @@ def test_summaries_come_at_most_every_15_minutes_and_only_on_news(herdr, failove
     assert len(sec.submitted) == 2
 
 
-def test_boss_back_with_the_same_session_gets_the_held_messages_oldest_first(herdr, failover, run):
+def test_boss_back_with_the_same_session_gets_the_held_messages_oldest_first(
+    herdr, failover, run, tmp_path
+):
     sec = herdr.add("w1:p2", "secretary")
     d = failover()
     boss_gone_after_one_message(herdr, d, run)
@@ -102,10 +104,16 @@ def test_boss_back_with_the_same_session_gets_the_held_messages_oldest_first(her
         *texts[:RELEASE_AT_ONCE],
         "courier: 2 more held for you: `courier inbox`",
     ]
-    assert d.status()["held"]["boss"]["pending"][0]["text"] == texts[RELEASE_AT_ONCE]
+    assert [m.text for m in mailbox.load(tmp_path, "boss")] == texts[RELEASE_AT_ONCE:]
+    assert "boss" not in d.status()["held"]
+    assert "boss" not in d.missing
     sec.status = "idle"
     run(d, 3)
     assert "back with the same session; 10 typed in" in sec.submitted[-1]
+    before = len(back.submitted)
+    d2 = failover()
+    run(d2, 10)
+    assert len(back.submitted) == before
 
 
 def test_boss_back_with_a_new_session_gets_held_and_fresh_in_order(herdr, failover, run):
@@ -307,8 +315,7 @@ def test_held_overflow_for_non_reader_new_session_files_inbox_and_stops_repeats(
     d = failover()
     boss_gone_after_one_message(herdr, d, run)
     texts = [f"msg {n}" for n in range(24)]
-    for text in texts:
-        d.enqueue("boss", text, source="lane")
+    items = [d.enqueue("boss", text, source="lane") for text in texts]
     run(d, 3)
     sec.status = "idle"
     back = boss_back(herdr, session="s7")
@@ -321,6 +328,9 @@ def test_held_overflow_for_non_reader_new_session_files_inbox_and_stops_repeats(
     ]
     filed = [m.text for m in mailbox.load(tmp_path, "boss")]
     assert filed == texts[RELEASE_AT_ONCE:]
+    assert all(item.state is State.SENT for item in items[RELEASE_AT_ONCE:])
+    assert "boss" not in d.status()["held"]
+    assert "boss" not in d.missing
     notices_when_back = len(sec.submitted)
 
     for _ in range(int(HOLD_TTL // SUMMARY_EVERY) + 2):
@@ -328,3 +338,32 @@ def test_held_overflow_for_non_reader_new_session_files_inbox_and_stops_repeats(
         clock.now += SUMMARY_EVERY
         run(d, 5)
     assert len(sec.submitted) == notices_when_back
+
+    before = len(back.submitted)
+    d2 = failover()
+    run(d2, 10)
+    assert len(back.submitted) == before
+    assert "boss" not in d2.missing
+
+
+def test_overflow_filing_oserror_keeps_items_held(herdr, failover, run, monkeypatch):
+    herdr.add("w1:p2", "secretary")
+    d = failover()
+    boss_gone_after_one_message(herdr, d, run)
+    items = [d.enqueue("boss", f"msg {n}", source="lane") for n in range(RELEASE_AT_ONCE + 2)]
+    run(d, 3)
+
+    def fail_add(_root, _item):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mailbox, "add", fail_add)
+    back = boss_back(herdr, session="s7")
+    for _ in range(RELEASE_AT_ONCE + 3):
+        run(d, 3)
+        back.status = "idle"
+    assert [i.state for i in items[:RELEASE_AT_ONCE]] == [State.SENT] * RELEASE_AT_ONCE
+    assert [i.state for i in items[RELEASE_AT_ONCE:]] == [State.WAITING, State.WAITING]
+    assert [i["id"] for i in d.status()["held"]["boss"]["pending"]] == [
+        i.id for i in items[RELEASE_AT_ONCE:]
+    ]
+    assert "boss" in d.missing
