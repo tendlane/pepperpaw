@@ -323,3 +323,49 @@ def rejection(screen: str) -> str | None:
             evidence = sha256(context.encode()).hexdigest()[:12]
             return f"codex_usage_limit: receiver reports its usage limit ({evidence})"
     return None
+
+
+_SURVEY_PROMPT = re.compile(r"how(?:'s| is) the cli experience\b", re.IGNORECASE)
+
+
+def _has_survey_choices(row: str) -> bool:
+    lower = " ".join(row.lower().split())
+    return (
+        "good" in lower
+        and "fine" in lower
+        and ("skip" in lower or "dismiss" in lower)
+        and (all(tok in lower for tok in ("[1]", "[2]", "[3]", "[0]")) or "bad" in lower)
+    )
+
+
+def _is_box_rule(row: str) -> bool:
+    return RULE in row and set(row) <= {"─", "╭", "╮", "╰", "╯", " "}
+
+
+def _is_status_footer(row: str) -> bool:
+    return row.startswith("? for shortcuts")
+
+
+def dismissable_dialog(screen: str) -> str | None:
+    """Identify an interactive prompt that hides the input box and can be closed with Escape."""
+    if classify(screen).state is not LineState.UNKNOWN:
+        return None
+    non_empty = [row for row in (_plain(ln).strip() for ln in screen.splitlines()) if row][-10:]
+    idx = next(
+        (i for i in range(len(non_empty) - 1, -1, -1) if _SURVEY_PROMPT.search(non_empty[i])),
+        None,
+    )
+    if idx is None:
+        return None
+    if _has_survey_choices(non_empty[idx]):
+        choices_row = idx
+    elif idx + 1 < len(non_empty) and _has_survey_choices(non_empty[idx + 1]):
+        choices_row = idx + 1
+    else:
+        return None
+    after = non_empty[choices_row + 1 :]
+    if sum(_is_status_footer(row) for row in after) > 1:
+        return None
+    if not all(_is_box_rule(row) or _is_status_footer(row) for row in after):
+        return None
+    return "CLI experience survey"

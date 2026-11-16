@@ -35,3 +35,13 @@ def test_recovery_enter_sends_only_one_key(transport, monkeypatch):
     )
     transport().enter("w1:p1")
     assert calls == [["pane", "send-keys", "w1:p1", "enter"]]
+
+
+@pytest.mark.parametrize("transport", [CliHerdr, PaneHerdr])
+def test_dismiss_escape_sends_only_esc(transport, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "herdr_courier.core.transport._run", lambda args, timeout: calls.append(args)
+    )
+    transport().escape("w1:p1")
+    assert calls == [["pane", "send-keys", "w1:p1", "esc"]]

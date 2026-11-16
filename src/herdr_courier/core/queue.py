@@ -21,12 +21,24 @@ from typing import Any
 
 from .. import defaults, ledger, mailbox, probes, routes
 from .gate import Observation, check
-from .inputline import OTHER_ESCAPE, SGR, InputLine, LineState, classify, holds, matches, rejection
+from .inputline import (
+    OTHER_ESCAPE,
+    SGR,
+    InputLine,
+    LineState,
+    classify,
+    dismissable_dialog,
+    holds,
+    matches,
+    rejection,
+)
 from .transport import Herdr, HerdrError, same_socket
 from .usage_stop import usage_stop
 
 VERIFY_SECONDS = 5.0
 MAX_ATTEMPTS = 5
+DISMISS_COOLDOWN = 5.0
+MAX_DISMISS_ATTEMPTS = 3
 USAGE_RECHECK_SECONDS = 60
 # A stop line stays on screen after the limit resets, and a resumed session shows it again, so
 # one held message goes through this often to see whether the agent answers now.
@@ -279,6 +291,7 @@ class Dispatcher:
         self._enter_retried: set[str] = set()
         self._submit_requests: dict[str, Future[Item]] = {}
         self._rejections_before: dict[str, str | None] = {}
+        self._dismiss_attempts: dict[str, tuple[int, float]] = {}
         self.merge_chars = merge_chars
         self.pointer_for = frozenset(pointer_for)
         # Courier's own notices to a reader that could not be filed: typed in full instead.
@@ -1430,6 +1443,7 @@ class Dispatcher:
             if retry_enter:
                 self._retry_enter(item)
             return
+        dismiss_dialog: str | None = None
         with self.lock:
             if item.state in FINAL:
                 return
@@ -1456,33 +1470,57 @@ class Dispatcher:
             ):
                 self._for_waiter.add(item.id)
                 return
-            # A reader that is working gets the message from its Stop hook, and one whose box
-            # holds other text from the prompt-submit hook when that text is sent: neither
-            # waits for the box, and the messages behind it do not wait either.
-            if (
+            if obs.dialog is None:
+                self._dismiss_attempts.pop(pane_id, None)
+            elif (
                 not verdict.ok
-                and (obs.status in ("working", "blocked") or obs.line.state is LineState.TYPED)
-                and self._await_reader(item, "in the mailbox for the hook: " + verdict.reason)
+                and obs.status in ("idle", "done")
+                and verdict.reason.startswith("input unknown:")
             ):
-                return
-            if not verdict.ok:
-                self._set(item, State.WAITING, verdict.reason)
-                return
-            # One pane is always focused, often an idle agent nobody watches, so focus cannot
-            # stop the pointer line that wakes it. A longer empty box narrows the clash with
-            # someone starting to type, which costs only the pointer: the hook brings the text.
-            if (
-                obs.focused
-                and self._pointed(item)
-                and (empty_for is None or empty_for < FOCUSED_READER_GRACE)
-            ):
-                self._set(
-                    item,
-                    State.WAITING,
-                    f"debounce: focused reader, input must stay empty for "
-                    f"{FOCUSED_READER_GRACE:.0f} s",
-                )
-                return
+                count, last_at = self._dismiss_attempts.get(pane_id, (0, -math.inf))
+                if count < MAX_DISMISS_ATTEMPTS:
+                    if now - last_at < DISMISS_COOLDOWN:
+                        self._set(
+                            item,
+                            State.WAITING,
+                            f"waiting after Escape for {obs.dialog} to close",
+                        )
+                        return
+                    self._dismiss_attempts[pane_id] = (count + 1, now)
+                    self.watch.setdefault(pane_id, PaneWatch()).empty_since = None
+                    self._set(item, State.WAITING, f"dismissing dialog with Escape: {obs.dialog}")
+                    dismiss_dialog = obs.dialog
+            if dismiss_dialog is None:
+                # A reader that is working gets the message from its Stop hook, and one whose box
+                # holds other text from the prompt-submit hook when that text is sent: neither
+                # waits for the box, and the messages behind it do not wait either.
+                if (
+                    not verdict.ok
+                    and (obs.status in ("working", "blocked") or obs.line.state is LineState.TYPED)
+                    and self._await_reader(item, "in the mailbox for the hook: " + verdict.reason)
+                ):
+                    return
+                if not verdict.ok:
+                    self._set(item, State.WAITING, verdict.reason)
+                    return
+                # One pane is always focused, often an idle agent nobody watches, so focus cannot
+                # stop the pointer line that wakes it. A longer empty box narrows the clash with
+                # someone starting to type, which costs only the pointer: the hook brings the text.
+                if (
+                    obs.focused
+                    and self._pointed(item)
+                    and (empty_for is None or empty_for < FOCUSED_READER_GRACE)
+                ):
+                    self._set(
+                        item,
+                        State.WAITING,
+                        f"debounce: focused reader, input must stay empty for "
+                        f"{FOCUSED_READER_GRACE:.0f} s",
+                    )
+                    return
+        if dismiss_dialog is not None:
+            self._send_dismiss_escape(pane_id, item, dismiss_dialog)
+            return
         # Observe again right before writing, all conditions and not only the box, to narrow
         # the window in which a human, a hold or a new agent could appear.
         final = self._observe(item)
@@ -1822,6 +1860,7 @@ class Dispatcher:
             state_seq=agent.get("state_change_seq"),
             terminal=agent.get("terminal_id"),
             rejection=rejection(screen),
+            dialog=dismissable_dialog(screen) if line.state is LineState.UNKNOWN else None,
         )
 
     def _observe(self, item: Item) -> Observation | None:
@@ -1864,6 +1903,24 @@ class Dispatcher:
                 f"{obs.line.state}: {obs.line.evidence}"
             )
         return obs
+
+    def _send_dismiss_escape(self, pane_id: str, item: Item, dialog: str) -> None:
+        self.log(f"courier: dismissing {dialog} in {pane_id} with Escape")
+        with self.lock:
+            self._journal(
+                {
+                    "event": "dialog_dismissed",
+                    "pane_id": pane_id,
+                    "id": item.id,
+                    "dialog": dialog,
+                }
+            )
+        try:
+            self.herdr.escape(pane_id)
+        except Exception as exc:  # noqa: BLE001 - keystroke errors stall safely without crashing tick
+            with self.lock:
+                self._set(item, State.WAITING, f"dialog dismiss failed: {exc}")
+            self.log(f"courier: could not dismiss {dialog} in {pane_id}: {exc}")
 
     def _empty_for(self, pane_id: str, line: InputLine, now: float) -> float | None:
         watch = self.watch.setdefault(pane_id, PaneWatch())
