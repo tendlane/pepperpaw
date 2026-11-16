@@ -1,5 +1,6 @@
 import pytest
 
+from herdr_courier import mailbox
 from herdr_courier.core.queue import (
     HOLD_TTL,
     RELEASE_AT_ONCE,
@@ -85,7 +86,9 @@ def test_summaries_come_at_most_every_15_minutes_and_only_on_news(herdr, failove
     assert len(sec.submitted) == 2
 
 
-def test_boss_back_with_the_same_session_gets_the_held_messages_oldest_first(herdr, failover, run):
+def test_boss_back_with_the_same_session_gets_the_held_messages_oldest_first(
+    herdr, failover, run, tmp_path
+):
     sec = herdr.add("w1:p2", "secretary")
     d = failover()
     boss_gone_after_one_message(herdr, d, run)
@@ -101,13 +104,19 @@ def test_boss_back_with_the_same_session_gets_the_held_messages_oldest_first(her
         *texts[:RELEASE_AT_ONCE],
         "courier: 2 more held for you: `courier inbox`",
     ]
-    assert d.status()["held"]["boss"]["pending"][0]["text"] == texts[RELEASE_AT_ONCE]
+    assert [m.text for m in mailbox.load(tmp_path, "boss")] == texts[RELEASE_AT_ONCE:]
+    assert "boss" not in d.status()["held"]
+    assert "boss" not in d.missing
     sec.status = "idle"
     run(d, 3)
     assert "back with the same session; 10 typed in" in sec.submitted[-1]
+    before = len(back.submitted)
+    d2 = failover()
+    run(d2, 10)
+    assert len(back.submitted) == before
 
 
-def test_boss_back_with_a_new_session_gets_nothing_typed_in(herdr, failover, run):
+def test_boss_back_with_a_new_session_gets_held_and_fresh_in_order(herdr, failover, run):
     sec = herdr.add("w1:p2", "secretary")
     d = failover()
     boss_gone_after_one_message(herdr, d, run)
@@ -115,14 +124,55 @@ def test_boss_back_with_a_new_session_gets_nothing_typed_in(herdr, failover, run
     run(d, 3)
     sec.status = "idle"
     back = boss_back(herdr, session="s7")
-    run(d, 10)
-    assert back.submit_calls == 0
-    assert item.state is State.WAITING
-    assert "back with a new session; the held stay held: `courier inbox boss`" in sec.submitted[-1]
+    for _ in range(3):
+        run(d, 3)
+        back.status = "idle"
+    assert item.state is State.SENT
+    assert item.session == "s7"
+    assert "back with a new session; 1 typed in" in sec.submitted[-1]
+    assert "the held stay held" not in sec.submitted[-1]
     # New messages go to the new session as usual.
     d.enqueue("boss", "fresh", source="lane")
     run(d, 3)
-    assert back.submitted == ["fresh"]
+    assert back.submitted == ["report", "fresh"]
+
+
+def test_queued_item_held_when_pane_restarts_in_place_with_new_session(herdr, failover, run):
+    herdr.add("w1:p2", "secretary")
+    pane = herdr.add("w1:p1", "boss", box="busy", session="s1")
+    d = failover()
+    first = d.enqueue("boss", "first", source="lane")
+    second = d.enqueue("boss", "second", source="lane")
+    pane.session = "s7"
+    pane.box = ""
+    for _ in range(4):
+        run(d, 5)
+        pane.status = "idle"
+    assert pane.submitted == ["first", "second"]
+    assert first.state is second.state is State.SENT
+    assert first.session == second.session == "s7"
+
+
+def test_held_across_restart_deliver_to_new_session_without_repeats(herdr, failover, run, clock):
+    sec = herdr.add("w1:p2", "secretary")
+    d = failover()
+    boss_gone_after_one_message(herdr, d, run)
+    first = d.enqueue("boss", "first", source="lane")
+    second = d.enqueue("boss", "second", source="lane")
+    run(d, 3)
+    d2 = failover()
+    back = boss_back(herdr, session="s7")
+    for _ in range(4):
+        run(d2, 3)
+        back.status = "idle"
+    assert back.submitted == ["first", "second"]
+    assert d2.items[first.id].state is d2.items[second.id].state is State.SENT
+    notices = len(sec.submitted)
+    for _ in range(3):
+        sec.status = "idle"
+        clock.now += SUMMARY_EVERY
+        run(d2, 5)
+    assert len(sec.submitted) == notices
 
 
 @pytest.mark.parametrize("count", [2, RELEASE_AT_ONCE * 2 + 2])
@@ -157,6 +207,11 @@ def test_reader_back_with_a_new_session_gets_each_held_pointer_once(
     assert not d.status()["held"].get("boss", {}).get("pending")
     assert f"back; {min(count, RELEASE_AT_ONCE)} filed for it" in sec.submitted[-1]
     assert "the held stay held" not in sec.submitted[-1]
+    notices = len(sec.submitted)
+    sec.status = "idle"
+    clock.now += SUMMARY_EVERY
+    run(d, 5)
+    assert len(sec.submitted) == notices
 
 
 def test_a_held_message_fails_after_the_ttl_and_the_summary_says_so(herdr, failover, run, clock):
@@ -225,3 +280,90 @@ def test_held_messages_survive_a_restart(herdr, failover, run):
     run(d2, 10)
     assert back.submitted == ["report"]
     assert d2.items[item.id].state is State.SENT
+
+
+def test_boss_back_with_a_new_session_delivers_held_in_order_without_repeats(
+    herdr, failover, run, clock
+):
+    sec = herdr.add("w1:p2", "secretary")
+    d = failover()
+    boss_gone_after_one_message(herdr, d, run)
+    items = [d.enqueue("boss", f"report {n}", source="lane") for n in range(3)]
+    run(d, 3)
+    sec.status = "idle"
+    back = boss_back(herdr, session="s7")
+    for _ in range(5):
+        run(d, 3)
+        back.status = "idle"
+    assert back.submitted == ["report 0", "report 1", "report 2"]
+    assert all(item.state is State.SENT and item.session == "s7" for item in items)
+    assert all(item.held_until is None for item in items)
+    assert "back with a new session; 3 typed in" in sec.submitted[-1]
+    before_notices = len(sec.submitted)
+
+    for _ in range(int(HOLD_TTL // SUMMARY_EVERY) + 2):
+        sec.status = "idle"
+        clock.now += SUMMARY_EVERY
+        run(d, 5)
+    assert len(sec.submitted) == before_notices
+
+
+def test_held_overflow_for_non_reader_new_session_files_inbox_and_stops_repeats(
+    herdr, failover, run, clock, tmp_path
+):
+    sec = herdr.add("w1:p2", "secretary")
+    d = failover()
+    boss_gone_after_one_message(herdr, d, run)
+    texts = [f"msg {n}" for n in range(24)]
+    items = [d.enqueue("boss", text, source="lane") for text in texts]
+    run(d, 3)
+    sec.status = "idle"
+    back = boss_back(herdr, session="s7")
+    for _ in range(RELEASE_AT_ONCE + 3):
+        run(d, 3)
+        back.status = "idle"
+    assert back.submitted == [
+        *texts[:RELEASE_AT_ONCE],
+        f"courier: {24 - RELEASE_AT_ONCE} more held for you: `courier inbox`",
+    ]
+    filed = [m.text for m in mailbox.load(tmp_path, "boss")]
+    assert filed == texts[RELEASE_AT_ONCE:]
+    assert all(item.state is State.SENT for item in items[RELEASE_AT_ONCE:])
+    assert "boss" not in d.status()["held"]
+    assert "boss" not in d.missing
+    notices_when_back = len(sec.submitted)
+
+    for _ in range(int(HOLD_TTL // SUMMARY_EVERY) + 2):
+        sec.status = "idle"
+        clock.now += SUMMARY_EVERY
+        run(d, 5)
+    assert len(sec.submitted) == notices_when_back
+
+    before = len(back.submitted)
+    d2 = failover()
+    run(d2, 10)
+    assert len(back.submitted) == before
+    assert "boss" not in d2.missing
+
+
+def test_overflow_filing_oserror_keeps_items_held(herdr, failover, run, monkeypatch):
+    herdr.add("w1:p2", "secretary")
+    d = failover()
+    boss_gone_after_one_message(herdr, d, run)
+    items = [d.enqueue("boss", f"msg {n}", source="lane") for n in range(RELEASE_AT_ONCE + 2)]
+    run(d, 3)
+
+    def fail_add(_root, _item):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mailbox, "add", fail_add)
+    back = boss_back(herdr, session="s7")
+    for _ in range(RELEASE_AT_ONCE + 3):
+        run(d, 3)
+        back.status = "idle"
+    assert [i.state for i in items[:RELEASE_AT_ONCE]] == [State.SENT] * RELEASE_AT_ONCE
+    assert [i.state for i in items[RELEASE_AT_ONCE:]] == [State.WAITING, State.WAITING]
+    assert [i["id"] for i in d.status()["held"]["boss"]["pending"]] == [
+        i.id for i in items[RELEASE_AT_ONCE:]
+    ]
+    assert "boss" in d.missing
