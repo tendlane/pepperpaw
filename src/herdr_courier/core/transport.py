@@ -24,6 +24,7 @@ class Herdr(Protocol):
     def read_ansi(self, pane_id: str, lines: int = 12) -> str: ...
     def submit(self, pane_id: str, text: str) -> None: ...
     def enter(self, pane_id: str) -> None: ...
+    def escape(self, pane_id: str) -> None: ...
 
 
 def same_socket(a: str, b: str) -> bool:
@@ -118,6 +119,9 @@ class CliHerdr:
 
     def enter(self, pane_id: str) -> None:
         _run(["pane", "send-keys", pane_id, "enter"], 15.0)
+
+    def escape(self, pane_id: str) -> None:
+        _run(["pane", "send-keys", pane_id, "esc"], 15.0)
 
 
 class PaneHerdr(CliHerdr):

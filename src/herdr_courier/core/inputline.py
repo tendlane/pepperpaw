@@ -323,3 +323,38 @@ def rejection(screen: str) -> str | None:
             evidence = sha256(context.encode()).hexdigest()[:12]
             return f"codex_usage_limit: receiver reports its usage limit ({evidence})"
     return None
+
+
+_SURVEY_PROMPT = re.compile(r"how(?:'s| is) the cli experience\b", re.IGNORECASE)
+_CONFIRM_DIALOG = re.compile(
+    r"\b(?:do you trust|allow this|grant permission|press enter to confirm)\b",
+    re.IGNORECASE,
+)
+
+
+def dismissable_dialog(screen: str) -> str | None:
+    """Identify an interactive prompt that hides the input box and can be closed with Escape."""
+    if classify(screen).state is not LineState.UNKNOWN:
+        return None
+    non_empty = [row for row in (_plain(ln).strip() for ln in screen.splitlines()) if row][-10:]
+    idx = next(
+        (i for i in range(len(non_empty) - 1, -1, -1) if _SURVEY_PROMPT.search(non_empty[i])),
+        None,
+    )
+    if idx is None:
+        return None
+    window = non_empty[idx:]
+    if any(_CONFIRM_DIALOG.search(row) for row in window[1:]):
+        return None
+    joined = " ".join(" ".join(window).lower().split())
+    has_choices = (
+        "good" in joined
+        and "fine" in joined
+        and ("skip" in joined or "dismiss" in joined)
+        and (
+            all(tok in joined for tok in ("[1]", "[2]", "[3]", "[0]"))
+            or "bad" in joined
+            or "help us improve" in joined
+        )
+    )
+    return "CLI experience survey" if has_choices else None

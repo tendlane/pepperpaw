@@ -21,13 +21,18 @@ class FakePane:
     box: str = ""
     placeholder: str = 'Try "how does <filepath> work?"'
     dialog: bool = False
+    custom_screen: str | None = None
+    dismiss_on_escape: bool = True
     submit_mode: str = "ok"
     submitted: list[str] = field(default_factory=list)
     submit_calls: int = 0
     terminal: str | None = None
     enter_calls: int = 0
+    escape_calls: int = 0
 
     def screen(self) -> str:
+        if self.custom_screen is not None:
+            return self.custom_screen
         if self.dialog:
             return "Do you trust this folder?\n❯ No, exit\n  Yes, I trust this folder\n"
         if self.box:
@@ -98,6 +103,12 @@ class FakeHerdr:
 
     def enter(self, pane_id: str) -> None:
         self._pane(pane_id)[1].enter_calls += 1
+
+    def escape(self, pane_id: str) -> None:
+        pane = self._pane(pane_id)[1]
+        pane.escape_calls += 1
+        if pane.dismiss_on_escape:
+            pane.custom_screen = None
 
 
 class FakeClock:

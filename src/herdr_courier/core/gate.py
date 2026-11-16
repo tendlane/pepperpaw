@@ -22,6 +22,7 @@ class Observation:
     state_seq: int | None = None
     terminal: str | None = None
     rejection: str | None = None
+    dialog: str | None = None
 
     @property
     def state(self) -> tuple[str, int | None]:

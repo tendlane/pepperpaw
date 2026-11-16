@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from herdr_courier.core.inputline import LineState, classify, holds
+from herdr_courier.core.inputline import LineState, classify, dismissable_dialog, holds
 
 DATA = Path(__file__).parent / "data"
 RULE = "\x1b[0m\x1b[38;2;136;136;136m" + "─" * 30 + "\x1b[0m"
@@ -222,3 +222,37 @@ def test_agy_dialog_is_not_empty(dialog):
     line = classify(dialog)
     assert line.state is LineState.UNKNOWN
     assert line.state is not LineState.EMPTY
+
+
+AGY_SURVEY = (Path(__file__).parent.parent / "fixtures" / "agy" / "feedback-survey.ansi").read_text(
+    encoding="utf-8"
+)
+
+
+def test_agy_feedback_survey_fixture_is_unknown_and_dismissable():
+    assert classify(AGY_SURVEY).state is LineState.UNKNOWN
+    assert dismissable_dialog(AGY_SURVEY) == "CLI experience survey"
+
+
+def test_agy_feedback_survey_without_rules_or_wrapped_is_dismissable():
+    no_rules = (
+        "Ready.\n"
+        "How's the CLI experience so far? Help us improve:\n"
+        "[1] Good  [2] Fine  [3] Bad  [0] Skip\n"
+    )
+    assert classify(no_rules).state is LineState.UNKNOWN
+    assert dismissable_dialog(no_rules) == "CLI experience survey"
+
+
+def test_dismissable_dialog_ignores_scrollback_and_non_survey_dialogs():
+    in_scrollback_with_empty_box = f"{AGY_SURVEY}\n{AGY_EMPTY}"
+    assert classify(in_scrollback_with_empty_box).state is LineState.EMPTY
+    assert dismissable_dialog(in_scrollback_with_empty_box) is None
+
+    trust_below_scrollback = (
+        f"{AGY_SURVEY}\nDo you trust this folder?\n> 1. Yes, I trust this folder\n  2. No\n"
+    )
+    assert dismissable_dialog(trust_below_scrollback) is None
+
+    allow_cmd = "  Allow this command?\r\n> 1. Yes\r\n  2. No\r\n  Press enter to confirm\r\n"
+    assert dismissable_dialog(allow_cmd) is None
