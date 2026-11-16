@@ -254,5 +254,13 @@ def test_dismissable_dialog_ignores_scrollback_and_non_survey_dialogs():
     )
     assert dismissable_dialog(trust_below_scrollback) is None
 
+    unlisted_prompt_below = f"{AGY_SURVEY}\nRun this command?  [y] Yes  [n] No\n"
+    assert dismissable_dialog(unlisted_prompt_below) is None
+
+    split_across_unrelated_rows = (
+        "How's the CLI experience so far? Help us improve:\nGood\nFine\nBad\nSkip\n"
+    )
+    assert dismissable_dialog(split_across_unrelated_rows) is None
+
     allow_cmd = "  Allow this command?\r\n> 1. Yes\r\n  2. No\r\n  Press enter to confirm\r\n"
     assert dismissable_dialog(allow_cmd) is None

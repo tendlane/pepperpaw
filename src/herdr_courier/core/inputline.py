@@ -326,10 +326,24 @@ def rejection(screen: str) -> str | None:
 
 
 _SURVEY_PROMPT = re.compile(r"how(?:'s| is) the cli experience\b", re.IGNORECASE)
-_CONFIRM_DIALOG = re.compile(
-    r"\b(?:do you trust|allow this|grant permission|press enter to confirm)\b",
-    re.IGNORECASE,
-)
+
+
+def _has_survey_choices(row: str) -> bool:
+    lower = " ".join(row.lower().split())
+    return (
+        "good" in lower
+        and "fine" in lower
+        and ("skip" in lower or "dismiss" in lower)
+        and (all(tok in lower for tok in ("[1]", "[2]", "[3]", "[0]")) or "bad" in lower)
+    )
+
+
+def _is_box_rule(row: str) -> bool:
+    return RULE in row and set(row) <= {"─", "╭", "╮", "╰", "╯", " "}
+
+
+def _is_status_footer(row: str) -> bool:
+    return row.startswith("? for shortcuts")
 
 
 def dismissable_dialog(screen: str) -> str | None:
@@ -343,18 +357,15 @@ def dismissable_dialog(screen: str) -> str | None:
     )
     if idx is None:
         return None
-    window = non_empty[idx:]
-    if any(_CONFIRM_DIALOG.search(row) for row in window[1:]):
+    if _has_survey_choices(non_empty[idx]):
+        choices_row = idx
+    elif idx + 1 < len(non_empty) and _has_survey_choices(non_empty[idx + 1]):
+        choices_row = idx + 1
+    else:
         return None
-    joined = " ".join(" ".join(window).lower().split())
-    has_choices = (
-        "good" in joined
-        and "fine" in joined
-        and ("skip" in joined or "dismiss" in joined)
-        and (
-            all(tok in joined for tok in ("[1]", "[2]", "[3]", "[0]"))
-            or "bad" in joined
-            or "help us improve" in joined
-        )
-    )
-    return "CLI experience survey" if has_choices else None
+    after = non_empty[choices_row + 1 :]
+    if sum(_is_status_footer(row) for row in after) > 1:
+        return None
+    if not all(_is_box_rule(row) or _is_status_footer(row) for row in after):
+        return None
+    return "CLI experience survey"
