@@ -163,6 +163,7 @@ class Missing:
     items: list[str] = field(default_factory=list)
     expired: list[str] = field(default_factory=list)
     back: str | None = None
+    same_session: bool = True
     released: int = 0
     checked: float = -math.inf
     summary_at: float | None = None
@@ -919,7 +920,8 @@ class Dispatcher:
                 id=item_id or uuid.uuid4().hex[:10],
                 target=target,
                 pane_id="",
-                session=self.seen.get(target),
+                # Not bound to the dead session; _settle_missing binds whichever session returns.
+                session=None,
                 text=text,
                 source=source,
                 human=human,
@@ -1326,18 +1328,26 @@ class Dispatcher:
             item = self.items.get(item_id)
             if item is None or item.state in FINAL:
                 m.items.remove(item_id)
-            elif item.held_until is not None and wall >= item.held_until:
+            elif m.back is None and item.held_until is not None and wall >= item.held_until:
                 m.expired.append(item.id)
                 self._finish(item, State.FAILED, f"hold expired: {m.reason(name)}")
         line = None
         # A pane without an agent session is still starting, or a bare shell: still missing.
         session = agent and (agent.get("agent_session") or {}).get("value")
         if session:
+            prev_session = self.seen.get(name)
             self.seen[name] = session
             reader = name in self.pointer_for
             if m.back is None or reader:
+                if m.back is None:
+                    item_sessions = {
+                        self.items[i].session for i in m.items if self.items[i].session
+                    }
+                    m.same_session = (prev_session is None or prev_session == session) and not (
+                        item_sessions - {session}
+                    )
                 m.back = session
-                ready = [i for i in m.items if reader or self.items[i].session == session]
+                ready = list(m.items)
                 for item_id in ready[:RELEASE_AT_ONCE]:
                     item = self.items[item_id]
                     m.items.remove(item_id)
@@ -1358,9 +1368,21 @@ class Dispatcher:
                     )
                     m.released += 1
                 if m.released and m.items and not reader:
+                    for item_id in m.items:
+                        try:
+                            mailbox.add(self.journal.parent, self.items[item_id])
+                        except OSError as exc:
+                            self.log(f"courier: {item_id} for {name} not filed: {exc}")
                     line = f"courier: {len(m.items)} more held for you: `courier inbox`"
+        already_reported_back = (
+            m.summary_said is not None and m.back is not None and m.summary_said[2] == m.back
+        )
         # Kept while a summary still has news for the other agent; _send_summaries drops it then.
-        if not m.items and not m.expired and (m.summary_at is None or name not in self.summary_to):
+        if (
+            not m.items
+            and not m.expired
+            and (m.summary_at is None or name not in self.summary_to or already_reported_back)
+        ):
             del self.missing[name]
         return line
 
@@ -1368,7 +1390,15 @@ class Dispatcher:
         now = self.clock()
         due = []
         with self.lock:
-            for name, m in self.missing.items():
+            for name, m in list(self.missing.items()):
+                if (
+                    m.summary_said is not None
+                    and m.back is not None
+                    and m.summary_said[2] == m.back
+                ):
+                    if not m.items and not m.expired:
+                        del self.missing[name]
+                    continue
                 other = self.summary_to.get(name)
                 if not other or (other in self.missing and self.missing[other].back is None):
                     continue
@@ -1413,7 +1443,8 @@ class Dispatcher:
             if m.released and name in self.pointer_for:
                 parts.append(f"back; {m.released} filed for it")
             elif m.released:
-                parts.append(f"back with the same session; {m.released} typed in")
+                which = "the same" if m.same_session else "a new"
+                parts.append(f"back with {which} session; {m.released} typed in")
             elif held:
                 parts.append(f"back with a new session; the held stay held: `courier inbox {name}`")
             else:
@@ -2070,9 +2101,9 @@ class Dispatcher:
                 elif want == asked and asked in self.hold_missing:
                     self._unqueue(item)
                     item.target, item.routed_from = asked, None
-                    item.session, item.terminal = self.seen.get(asked), None
+                    item.session, item.terminal = None, None
                     self._hold_by_name(
-                        item, target=asked, routed_from=None, session=item.session, terminal=None
+                        item, target=asked, routed_from=None, session=None, terminal=None
                     )
                 elif item.id in fallback:
                     self._finish(
