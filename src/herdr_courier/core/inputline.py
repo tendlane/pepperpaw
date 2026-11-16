@@ -33,6 +33,9 @@ PROMPT = "❯"
 AGY_PROMPT = ">"
 AGY_DIM_FG = (154, 160, 166)
 CODEX_PROMPT = "›"
+# agy lists running background tasks between their own rules under the input box:
+# "  ● [22:40:44] gh run list ... running".
+AGY_TASK = re.compile(r"\s*\S \[\d{2}:\d{2}:\d{2}\] ")
 BACKGROUND = re.compile(r"\x1b\[(?:[0-9;:]*;)?(?:48|4[0-7]|10[0-7])[;:m]")
 
 
@@ -249,6 +252,11 @@ def classify(screen: str, *, queued: str | None = None) -> InputLine:
             if (queued and line.state is LineState.UNKNOWN)
             else line
         )
+    # Step over agy's task sections to the box above them.
+    while len(rules) > 2 and all(
+        AGY_TASK.match(row) or not row.strip() for row in plain[rules[-2] + 1 : rules[-1]]
+    ):
+        rules.pop()
     top, bottom = rules[-2], rules[-1]
     # Blank rows under the top rule hold no input; some consoles redraw with one there.
     while top + 1 < bottom and not plain[top + 1].strip():
