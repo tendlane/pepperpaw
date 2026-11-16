@@ -241,6 +241,12 @@ def _owned_codex(plain: list[str], queued: str, unknown: InputLine) -> InputLine
     return line if matches(line, queued) else unknown
 
 
+def _task_section(rows: list[str]) -> bool:
+    return any(AGY_TASK.match(row) for row in rows) and all(
+        AGY_TASK.match(row) or not row.strip() for row in rows
+    )
+
+
 def classify(screen: str, *, queued: str | None = None) -> InputLine:
     lines = screen.splitlines()
     plain = [_plain(ln) for ln in lines]
@@ -252,10 +258,9 @@ def classify(screen: str, *, queued: str | None = None) -> InputLine:
             if (queued and line.state is LineState.UNKNOWN)
             else line
         )
-    # Step over agy's task sections to the box above them.
-    while len(rules) > 2 and all(
-        AGY_TASK.match(row) or not row.strip() for row in plain[rules[-2] + 1 : rules[-1]]
-    ):
+    # Step over agy's task sections to the box above them: at least one task row, and nothing
+    # but task rows and blank rows, so an empty section or two adjacent rules stay unknown.
+    while len(rules) > 2 and _task_section(plain[rules[-2] + 1 : rules[-1]]):
         rules.pop()
     top, bottom = rules[-2], rules[-1]
     # Blank rows under the top rule hold no input; some consoles redraw with one there.
