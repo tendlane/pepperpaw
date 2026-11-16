@@ -189,6 +189,30 @@ AGY_PLACEHOLDER = (
 )
 
 
+AGY_TASKS = (Path(__file__).parent.parent / "fixtures" / "agy" / "background-task.ansi").read_text(
+    encoding="utf-8"
+)
+
+
+def test_agy_background_task_rows_under_the_box_are_not_the_box():
+    line = classify(AGY_TASKS)
+    assert line.state is LineState.EMPTY, line.evidence
+    typed = classify(AGY_TASKS.replace(AGY_PLACEHOLDER, "\x1b[0mhello there"))
+    assert (typed.state, typed.text) == (LineState.TYPED, "hello there")
+
+
+def test_a_section_that_is_not_task_rows_is_still_not_a_box():
+    other = AGY_TASKS.replace("[10:15:02] ", "")
+    assert classify(other).state is LineState.UNKNOWN
+
+
+def test_a_blank_section_or_adjacent_rules_under_the_box_stay_unknown():
+    rule = "─" * 40
+    for below in (["", rule], [rule]):
+        screen = "\n".join([rule, "❯ ", rule, *below])
+        assert classify(screen).state is LineState.UNKNOWN, below
+
+
 def test_agy_placeholder_is_empty():
     line = classify(AGY_EMPTY)
     assert line.state is LineState.EMPTY
