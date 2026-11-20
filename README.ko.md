@@ -35,13 +35,13 @@ sent 4f1c2a9e07 to boss (w1:p2): agent working after submit
 설치하고, Python은 uv가 받아 옵니다. Windows(cmd 또는 PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/NaNIsaac/herdr-courier/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/tendlane/pepperpaw/main/install.ps1 | iex"
 ```
 
 macOS, Linux:
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/NaNIsaac/herdr-courier/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/tendlane/pepperpaw/main/install.sh | sh
 ```
 
 `uv tool install herdr-courier` 명령을 실행하고 uv의 명령 폴더를 새 터미널의 `PATH`에 넣습니다.
@@ -53,7 +53,7 @@ Python 3.13에서 테스트하며, Python은 필요하면 uv가 받아 옵니다
 
 <!-- test -->
 ```sh
-uv tool install git+https://github.com/NaNIsaac/herdr-courier
+uv tool install git+https://github.com/tendlane/pepperpaw
 uv tool update-shell
 ```
 
@@ -87,6 +87,85 @@ pane id를 씁니다. `herdr agent prompt`가 받는 대상과 같습니다.
 
 ## 예시
 
+### 제출되지 않은 courier 붙여넣기 되찾기
+
+`courier status receiver`로 배달 상태를 봅니다. 그 receiver의 입력 상자에 courier가 붙여넣은 내용이 남아 있으면 `courier submit receiver`가 디스패처에 Enter만 요청합니다. 입력 전체가 보관된 courier 메시지와 같아야 하고, identity·status·focus·hold를 새로 확인합니다. 사람이 고친 입력과 모르는 입력은 거부하며, 다시 붙여넣지 않고 강제 모드도 없습니다. 결과는 아직 verifying일 수 있으니 상태를 다시 확인합니다.
+
+새 `ghost`와 `rejected` 결과는 성공한 수신이 아니라 마지막까지 실패한 배달입니다. 자동 Enter 복구는 한 번까지만 합니다. 자세한 내용은 [배달 안전](docs/SPEC.md)에 있습니다. ghost는 notice receiver에게 한 번 보고되어(notice receiver 자기 상자에서 난 ghost는 controller에게) 사람이 그 상자에 입력하기 전에 누군가 비우게 합니다. 역슬래시로 끝나는 메시지는 거부합니다. Claude Code가 Enter 앞의 역슬래시를 줄바꿈으로 읽기 때문입니다. serve와 클라이언트는 함께 새 버전으로 올려 다시 띄웁니다. 0.2.0 프로세스에는 이 endpoint가 없습니다.
+
+### 보내는 쪽의 문맥이 사라져도 남는 작업
+
+보낸 사람의 문맥이 사라져도 작업이 남아야 할 때는 `--await`와 evidence pointer를 하나 이상 붙입니다. 키는 `BL-12` 같은 BACKLOG id, `project#5` 같은 저장소 이슈·PR 참조, Q 번호를 씁니다. courier는 형식만 확인하고, 그 키가 실제로 있는지는 부르는 쪽이 확인합니다.
+
+```text
+$ courier send worker "Produce the report" --await BL-12 --evidence "file out/report.txt"
+$ courier await list
+BL-12 OPEN owner=worker age=0s due=None
+```
+
+선택인 `--repo`, `--branch`, `--cwd`, `--due`(Unix 시각), `--needs-approval`, `--approval-ref`는 기록에 남습니다. evidence pointer는 요구되는 결과를 가리킵니다. 소유자가 `DONE BL-12`나 `READY BL-12`로 보고하면 OPEN이 VERIFYING으로 바뀝니다. 승인 참조는 승인을 주지 않고, DONE은 merge나 배포와 별개입니다.
+
+### 객관적 확인
+
+**사람이 직접 실행할 때만.** 터미널에서 한 번 돌리거나 foreground watcher를 띄워 둡니다.
+
+```text
+$ courier await verify
+$ courier await verify --watch --interval 600 --max-probes 100
+$ courier await close BL-12 --by probe
+```
+
+watcher를 스케줄러나 sentinel, 서비스에 등록하려면 운영자의 별도 승인이 필요합니다. courier는 예약 작업이나 상시 watcher를 만들지 않습니다. Ctrl+C는 foreground watcher만 멈추고 courier serve나 작업자의 일은 멈추지 않습니다.
+
+파일 evidence는 존재와 선택적 SHA-256 digest를 보고, 로그 evidence는 UTF-8 줄이 정확히 같은지 보고, PR evidence는 10초 제한의 읽기 전용 `gh pr view`를 씁니다. OPEN이나 MERGED PR에는 비어 있지 않은 `local-ci:` 줄과 저장소·PR URL이 맞아야 합니다. merge 상태는 따로 기록합니다. commit·test probe와 S1 통합은 넣지 않았고, 임의의 테스트 명령은 실행하지 않습니다.
+
+확인된 완료를 쓰는 것은 `await close --by probe`뿐입니다. 서비스가 디스패처 잠금 밖에서 보관된 evidence를 다시 확인하고, attempts·owner·state·evidence를 비교한 뒤에 DONE을 씁니다. 확인하는 사이 작업이 바뀌었으면 닫기를 다음 차례로 미룹니다. 부르는 쪽이 준 close note는 evidence를 대신하지 못합니다. 이 확인은 객관적인 사실을 세울 뿐, 그 evidence가 의도한 일을 증명하는지까지 정하지는 않습니다.
+
+소유자 보고가 없는 보통의 파일·PR 산출물은 OPEN으로 남아 flag가 붙습니다. 예외는 전부 로그인 작업입니다. 똑같은 로그 줄 하나하나가 보고로 세어지므로 courier의 답 없이 OPEN에서 닫힐 수 있습니다. 로그와 파일이 섞인 evidence에는 소유자 보고가 있어야 합니다.
+
+watcher는 기본 600초 간격으로 돌고 한 번에 evidence probe를 최대 100개 처리하며, 자기 관찰과 서비스의 닫기 재확인을 함께 셉니다. `--max-probes`는 2에서 100까지이고, pointer 하나를 닫는 데 성공할 때마다 칸 두 개를 씁니다. 이는 개수 제한이지 시간 제한이 아닙니다. 차례를 돌려 가며 도는 방식이라 계속 실패하는 작업이 뒤의 작업을 끝없이 굶기지 않습니다. 실패는 open/verifying으로 남고 key·이유마다 UTC 날짜 하루에 flag 하나가 붙습니다. 서비스가 멈춰 있으면 오류를 내고 다음 간격까지 기다리며, 빠르게 도는 루프에 들어가지 않습니다. 지켜보는 프로세스를 죽이거나 자동으로 다시 시도하지 않습니다.
+
+### 배달 복구
+
+같은 소유자에게 같은 키를 다시 보내면 작업 본문 대신 `REMINDER BL-12, ignore if running`을 30분에 한 번까지만 입력합니다. 다른 소유자, 또는 준 owner/repo/branch가 같고 키가 다른 것은 거부합니다. 닫힌 키는 `--reopen`을 줘야 다시 씁니다.
+
+serve가 꺼져 있으면 목록은 journal을 읽기 전용으로 읽거나 `ledger unavailable`을 내고 0이 아닌 코드로 끝납니다. await 전송이 실패하면 직접 배달하는 경로를 알려 주고 `pending-dispatch.jsonl`에 남깁니다. 시작할 때 이를 `note: manual`이 붙은 OPEN으로 들여오며 작업 본문은 입력하지 않습니다. 이 표시는 직접 배달이 실제로 있었다는 뜻이 아닙니다. 보관된 세대에서 교체 스냅샷 전에 끊긴 회전도 되살리고, 끝난 배달은 다시 보내지 않습니다.
+
+SessionStart(compact/resume) hook에서 `courier inbox --hook`으로 작업 복구를 설정합니다.
+
+```toml
+[ledger]
+controller = "boss"
+secretary = "secretary"
+resume_for = ["boss"]
+```
+
+이 이름들은 설정할 수 있고, `resume_for`는 `mailbox.readers`와 별개입니다. 선택된 에이전트는 자기가 보냈거나 소유한 작업과 serve가 꺼졌다는 상태를 봅니다. `resume_for`가 비면 hook에 작업을 넣지 않습니다.
+
+재배정과 취소는 herdr로 `HERDR_PANE_ID`를 확인하고 설정된 controller pane을 요구합니다. `--source` 텍스트는 이 작업을 허가하지 않습니다. 보통 재배정은 작업 중인 소유자, lane-state 작업과 겹치는 경우, evidence가 이미 있는 경우, 실행 증명이 없는 경우를 거부합니다. 실행 증명 adapter가 실제로 있어야 하고, 증명을 쓸 수 없으면 닫는 쪽으로 실패합니다.
+
+```text
+$ courier await reassign BL-12 --to replacement
+$ courier await reassign BL-12 --to replacement --force --reason "Approved recovery"
+$ courier await cancel BL-12
+```
+
+재배정은 소유자를 바꾸고 보내지 않은 원본을 취소할 뿐, 작업을 다시 시작하거나 도는 프로세스를 멈추지 않습니다. 강제 재배정은 이유를 기록하고 설정된 secretary mailbox에 알림을 남기며, pane을 쓸 수 없을 때도 그렇습니다. 알림은 `courier inbox secretary`(설정한 이름)로 읽습니다. pane 확인은 source 라벨로 덮어쓰지 못하게 할 뿐, 자기 환경을 꾸며 공유 서비스 토큰에 닿는 다른 로컬 클라이언트와 격리해 주지는 않습니다.
+
+자세히 남는 작업 기록은 2,000개까지입니다. 오래된 끝난 기록은 key, 마지막 상태, 끝난 시각, record SHA-256, attempts를 담은 무덤 기록으로 줄고, 무덤 기록은 50,000개까지 중복 방지와 reopen 횟수를 지킵니다. 80%에 닿으면 secretary에게 한 번 경고가 남습니다. 한도에 꽉 차면 새 키는 `ledger_capacity`, HTTP 507, CLI 종료 코드 5로 거부되고 secretary에게 알림이 남습니다. 있는 키의 재전송은 계속 됩니다. 보관 한도를 늘리기 전에 용량을 살피고, 중복 방지 기록을 지우면 중복이 생깁니다.
+
+ledger가 있으면 journal 이벤트 기록은 압축 스냅샷에서 다시 4 MiB가 늘 때 회전하고 최근 10세대를 남깁니다. 스냅샷 자체는 4 MiB를 넘을 수 있고, 살아 있는 기록과 닫힌 키의 중복 방지 기록은 보존됩니다. `--await` 없는 보통 전송은 원래의 request, item, journal 스키마를 그대로 씁니다.
+
+herdr에 연결하지 않고 명령 문법만 보려면:
+
+<!-- test -->
+```sh
+courier await --help
+courier await verify --help
+```
+
+### 메시지 배달
+
 데몬을 띄웁니다. `hcd`와 `hc serve`는 `courier serve`의 다른 이름입니다.
 
 ```text
@@ -118,6 +197,18 @@ w1:p61  HOLD typing on the phone (lane, 599 s left)
 $ courier release reviewer
 released w1:p61
 ```
+
+같은 pane을 기다린 메시지는 pane이 준비되면 하나의 프롬프트로, 오래된 것부터 각자의 머리줄 아래에 들어가므로 에이전트는 한 번의 턴으로 모두 받습니다.
+
+```text
+--- 6f555376a5 from lane at 14:02 ---
+[lane] tests pass, PR opened
+
+--- 0b1d7c94e2 from design at 14:05 ---
+[design] mockup ready for review
+```
+
+메시지 하나는 입력한 그대로 들어갑니다. `/compact` 같은 슬래시 명령은 항상 혼자 들어가고, 사람의 메시지는 사람의 메시지끼리만 합쳐지며, 프롬프트 하나는 `delivery.merge_chars` 글자까지입니다. 나머지는 다음 차례로 갑니다. 메시지는 저마다 id를 지켜 `courier status`, 입력 전 `courier cancel`, `courier inbox --ack <id>`가 메시지 단위로 계속 동작합니다.
 
 전체가 살아 있는지 확인합니다.
 
@@ -332,6 +423,21 @@ herdr agent prompt boss "[lane] status report"
 ## 동작 방식
 
 전달 조건, 전달 상태, 데몬의 보안 모델은 [docs/DISPATCH.md](docs/DISPATCH.md)에 있습니다.
+
+## 사람의 질문
+
+배포판은 사람의 메시지와 질문을 위해 `pepperpaw`와 `ppw`도 설치합니다. `human.name`과
+`questions.adapters`를 설정하면 `ppw q`, `ppw q provider:id`, `ppw a provider:id "answer"`를 쓸 수
+있습니다. `answer`는 `a`의 다른 이름이고 `--file`은 여러 줄 UTF-8 답을 읽습니다. `ppw send`는
+courier의 사람 우선 전송과 첨부 경로를 그대로 씁니다. 이 명령들은 `--json`을 받습니다. provider를
+설정하지 않으면 질문 목록이 설정이 없다고 그대로 알려 줍니다. [provider 프로토콜과
+설정](docs/questions.md)을 봅니다.
+
+`ppw where NAME`은 `tab, pane label, pane id` 한 줄을 출력합니다. 정확한 에이전트 이름, pane label,
+또는 설정한 pane-label 구분자 뒤의 서비스 이름(예: `service · monitor`의 `monitor`)과 맞습니다. pane id도
+됩니다. 사람 identity나 질문 provider 설정은 필요 없습니다. 이름이 여럿에 걸리면 pane을 고르지 않고
+후보 id와 함께 실패합니다. `ppw where NAME --focus`는 에이전트 pane으로 이동하고, 에이전트가 없는
+서비스면 그 탭으로 옮겨 어느 pane을 써야 하는지 출력합니다. 터미널 입력은 보내지 않습니다.
 
 ## 개발
 

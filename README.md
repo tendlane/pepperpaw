@@ -46,13 +46,13 @@ One line, nothing needed beforehand: the script installs [uv](https://docs.astra
 missing, and uv fetches a Python. Windows (cmd or PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/NaNIsaac/herdr-courier/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/tendlane/pepperpaw/main/install.ps1 | iex"
 ```
 
 macOS and Linux:
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/NaNIsaac/herdr-courier/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/tendlane/pepperpaw/main/install.sh | sh
 ```
 
 It runs `uv tool install herdr-courier` and puts uv's command folder on `PATH` for new terminals.
@@ -64,7 +64,7 @@ Windows and Linux with Python 3.13, which uv fetches if needed. By hand, with uv
 
 <!-- test -->
 ```sh
-uv tool install git+https://github.com/NaNIsaac/herdr-courier
+uv tool install git+https://github.com/tendlane/pepperpaw
 uv tool update-shell
 ```
 
