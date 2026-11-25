@@ -114,6 +114,7 @@ def render(
     wide: bool = False,
     color: bool = False,
     routes: list[str] | None = None,
+    stopped: list[str] | None = None,
 ) -> str:
     """A table that fits a phone terminal; ``wide`` adds the terminal title column.
 
@@ -184,6 +185,9 @@ def render(
         )
     out.append(fit("* = focused on the herdr server (any client)", width).rstrip())
     out.append(fit("shell = no agent in that pane", width).rstrip())
+    if stopped:
+        out.append("")
+        out.extend(w for line_ in stopped for w in wrap(line_, width, "- ", "  "))
     if notes:
         out.append("")
         for note in notes:

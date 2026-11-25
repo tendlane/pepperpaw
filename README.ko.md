@@ -312,6 +312,14 @@ courier panes
 묶어 라벨과 작업 폴더를 보여 주고, 라벨이 [설정](#설정)의 이름 규칙을 어기면 경고합니다. 둘 다
 62열 폰 터미널에 맞습니다.
 
+어느 pane에서도 돌지 않는 레인은 일부러 껐는지 저절로 꺼졌는지 표만으로는 알 수 없습니다.
+`stops.command`를 정하면 `agents`가 그 명령을 실행해, 멈췄다고 기록되었고 어느 pane에서도 돌지
+않는 레인마다 표 아래에 `amg stopped on purpose at 2026-11-25 15:30 by boss: paused` 같은 줄을
+하나씩 붙입니다. `--json`에서는 `stopped`에 나옵니다. 명령은 레코드의 JSON 목록을 출력하고,
+`lane` 이름과 `stopped` 객체(`by`, `at`, `why`)가 있는 레코드만 셉니다.
+`tendlane ledger lane-state list --json`이 이런 목록을 출력합니다. 명령이 실패하면 표와 경고가
+나옵니다.
+
 터미널에서 `agents`는 상태에 색을 입히고(working 초록, idle 회색, done 파랑, blocked 빨강),
 에이전트 이름은 굵게, 대기 중인 큐는 노랑, shell pane은 흐리게 보여 줍니다. `NO_COLOR`나
 `--color=never`로 끄고, 출력이 터미널이 아닐 때도 색을 원하면 `--color`를 붙입니다. Windows의
@@ -418,6 +426,8 @@ herdr agent prompt boss "[lane] status report"
 | `ovis.settle` | `3.0` | 턴이 끝난 뒤 에이전트 상태가 이 초 동안 그대로여야 그런 메시지를 보냄 |
 | `mailbox.write` | `false` | 데몬이 큐에 넣는 모든 메시지를 우편함에도 남김 |
 | `mailbox.readers` | `[]` | `courier inbox --hook`이 열린 메시지를 돌려주는 에이전트 |
+| `stops.command` | `[]` | 레인 레코드를 출력하는 명령. `agents`가 일부러 멈춘 채 어느 pane에서도 돌지 않는 레인을 보여 줌 |
+| `stops.timeout` | `10.0` | `stops.command`에 주는 초 |
 | `files.inbox` | `""` | `courier send --file`이 이 PC에서 파일을 복사하는 폴더. `""`는 상태 폴더의 `inbox/` |
 
 ## 동작 방식

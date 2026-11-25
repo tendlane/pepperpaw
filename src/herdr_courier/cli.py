@@ -31,6 +31,7 @@ from . import (
     mailbox,
     panes,
     routes,
+    stops,
     verifier,
 )
 from .client import LostContact, Refused, Unavailable, request
@@ -391,6 +392,12 @@ def cmd_agents(args: argparse.Namespace) -> int:
         notes = []
     running = {r.agent for r in rows if r.agent and r.status != agents.NO_AGENT}
     notes += routes.unmet(table, running) + agents.warnings(rows)
+    try:
+        found, note = stops.read(config.load().stops)
+    except config.ConfigError as exc:
+        found, note = [], str(exc)
+    stopped = stops.not_running(found, running)
+    notes += [note] if note else []
     if args.json:
         print(
             json.dumps(
@@ -398,6 +405,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
                     "dispatcher": summary,
                     "routes": table,
                     "rows": [r.as_dict() for r in rows],
+                    "stopped": [s.as_dict() for s in stopped],
                     "warnings": notes,
                 },
                 ensure_ascii=False,
@@ -416,6 +424,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
             wide=args.wide,
             color=color,
             routes=routes.describe(table),
+            stopped=[s.line() for s in stopped],
         )
     )
     return 0

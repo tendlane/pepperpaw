@@ -87,6 +87,13 @@ inbox = ""
 name = ""
 default_to = ""
 
+[stops]
+# A command that prints a JSON list of lane records, for courier agents. A record with a "stopped"
+# object ({"by", "at", "why"}) whose "lane" runs in no pane is shown as stopped on purpose.
+# [] shows none. Environment variables in the arguments are expanded.
+command = []
+timeout = 10.0
+
 [questions]
 # Opt-in provider commands; see docs/questions.md for their JSON protocol.
 adapters = {}
