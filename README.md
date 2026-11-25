@@ -386,6 +386,14 @@ only the tab label, so it warns when a tab is not named after the agent it holds
 panes by tab with their label and working directory, and warns when a label breaks the naming
 rule in [Configuration](#configuration). Both fit a 62-column phone terminal.
 
+A lane that runs in no pane looks the same whether it was stopped on purpose or went away. With
+`stops.command` set, `agents` runs that command and adds one line under the table for each lane
+it reports stopped that runs in no pane, such as
+`amg stopped on purpose at 2026-11-25 15:30 by boss: paused`; `--json` lists them under
+`stopped`. The command prints a JSON list of records; one with a `lane` name and a `stopped`
+object (`by`, `at`, `why`) counts. `tendlane ledger lane-state list --json` prints such a list.
+If the command fails, `agents` shows the table with a warning.
+
 In a terminal, `agents` colours the status (working green, idle grey, done blue, blocked
 red), shows agent names in bold, waiting queues in yellow and shell panes dimmed. `NO_COLOR`
 or `--color=never` turns this off; `--color` keeps it when the output is not a terminal, which
@@ -498,6 +506,8 @@ profile; that file must exist.
 | `mailbox.write` | `false` | the daemon also keeps a mailbox copy of every queued message |
 | `mailbox.readers` | `[]` | agents whose `courier inbox --hook` returns their open messages; with `mailbox.write` on, their panes get a pointer line per message instead of its text |
 | `delivery.merge_chars` | `6000` | messages waiting for one ready pane go in one prompt up to this size; `0` types each alone |
+| `stops.command` | `[]` | a command that prints lane records; `agents` shows the lanes stopped on purpose that run in no pane |
+| `stops.timeout` | `10.0` | seconds `stops.command` may take |
 | `files.inbox` | `""` | where `courier send --file` copies files on this PC; `""` is `inbox/` in the state directory |
 
 ## How it works

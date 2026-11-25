@@ -86,6 +86,12 @@ class QuestionProvider:
 
 
 @dataclass(frozen=True)
+class Stops:
+    command: tuple[str, ...] = ()
+    timeout: float = field(default=10.0, metadata={"max": 60})
+
+
+@dataclass(frozen=True)
 class Questions:
     adapters: dict[str, QuestionProvider] = field(default_factory=dict)
 
@@ -102,6 +108,7 @@ class Config:
     files: Files = Files()
     human: Human = Human()
     questions: Questions = field(default_factory=Questions)
+    stops: Stops = Stops()
     path: Path | None = None
 
 
@@ -116,6 +123,7 @@ SECTIONS = {
     "files": Files,
     "human": Human,
     "questions": Questions,
+    "stops": Stops,
 }
 
 

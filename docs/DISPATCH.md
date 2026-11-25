@@ -30,6 +30,7 @@ src/herdr_courier/
   client.py           standard-library client for those routes (courier and other programs)
   cli.py              courier
   agents.py           courier agents: panes joined with tabs, agent names and the queue
+  stops.py            lanes stopped on purpose, from the command in [stops]
   panes.py            courier panes: panes by tab, labels checked against a naming rule
   doctor.py           courier doctor: read-only checks of herdr, courier serve and its neighbours
   ovis.py             whether Ovis answers, and the between-turns rule for `ovis.panes`
